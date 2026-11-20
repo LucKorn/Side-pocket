@@ -10,16 +10,20 @@ import {
   StatusBar,
 } from 'react-native';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-const TABLE_W = Math.min(SCREEN_WIDTH - 76, 310);
+// Mesa ampliada ocupando melhor a altura e largura da tela
+const MAX_AVAIL_H = SCREEN_HEIGHT - 165;
+const MAX_AVAIL_W = SCREEN_WIDTH - 86;
+const TABLE_W = Math.min(MAX_AVAIL_W, MAX_AVAIL_H / 1.88);
 const TABLE_H = TABLE_W * 1.88;
-const RAIL = 22;
+
+const RAIL = 20;
 const PLAY_X = RAIL;
 const PLAY_Y = RAIL;
 const PLAY_W = TABLE_W - RAIL * 2;
 const PLAY_H = TABLE_H - RAIL * 2;
-const BALL_R = Math.max(9.5, TABLE_W * 0.036);
+const BALL_R = Math.max(10, TABLE_W * 0.037);
 const POCKET_R = BALL_R * 1.75;
 
 const POCKETS = [
@@ -43,6 +47,14 @@ const BALL_COLORS = {
   8: '#1E293B',
   9: '#EAB308',
 };
+
+const SPIN_PRESETS = [
+  { x: 0, y: 0, label: 'CENTER' },
+  { x: 0, y: 0.85, label: 'TOP' },
+  { x: 0, y: -0.85, label: 'BACK' },
+  { x: -0.85, y: 0, label: 'LEFT' },
+  { x: 0.85, y: 0, label: 'RIGHT' },
+];
 
 const POCKET_STAGES = [
   {
@@ -124,7 +136,6 @@ const TRICK_STAGES = [
   },
 ];
 
-// Componente auxiliar para desenhar qualquer linha usando View rotacionada
 function NativeLine({ x1, y1, x2, y2, thickness = 2, color = '#FFFFFF', dashed = false, opacity = 1 }) {
   const dx = x2 - x1;
   const dy = y2 - y1;
@@ -162,7 +173,7 @@ export default function App() {
   const [combo, setCombo] = useState(1);
   const [aimAngle, setAimAngle] = useState(-Math.PI / 2);
   const [pullPower, setPullPower] = useState(0);
-  const [spin, setSpin] = useState({ x: 0, y: 0 });
+  const [spinIdx, setSpinIdx] = useState(0);
   const [isMoving, setIsMoving] = useState(false);
   const [bannerMsg, setBannerMsg] = useState('');
   const [stageResult, setStageResult] = useState(null);
@@ -211,7 +222,7 @@ export default function App() {
     setAimAngle(-Math.PI / 2);
     setPullPower(0);
     spinRef.current = { x: 0, y: 0 };
-    setSpin({ x: 0, y: 0 });
+    setSpinIdx(0);
 
     ballsRef.current = [
       {
@@ -231,7 +242,17 @@ export default function App() {
         active: true,
       })),
     ];
-      useEffect(() => {
+
+    starRef.current = st.star
+      ? { x: PLAY_X + st.star.x * PLAY_W, y: PLAY_Y + st.star.y * PLAY_H, active: true }
+      : null;
+
+    isMovingRef.current = false;
+    setIsMoving(false);
+    setTick((t) => t + 1);
+    showBanner(st.name);
+  };
+          useEffect(() => {
     const interval = setInterval(() => {
       if (!isMovingRef.current) return;
 
@@ -426,7 +447,7 @@ export default function App() {
     }
 
     spinRef.current = { x: 0, y: 0 };
-    setSpin({ x: 0, y: 0 });
+    setSpinIdx(0);
 
     const remainingObjectBalls = ballsRef.current.filter((b) => b.id !== 0 && b.active).length;
 
@@ -490,11 +511,11 @@ export default function App() {
     onStartShouldSetPanResponder: () => !isMoving && !stageResult,
     onMoveShouldSetPanResponder: () => !isMoving && !stageResult,
     onPanResponderMove: (_, gesture) => {
-      const clamped = Math.max(0, Math.min(1, gesture.dy / 140));
+      const clamped = Math.max(0, Math.min(1, gesture.dy / 145));
       setPullPower(clamped);
     },
     onPanResponderRelease: (_, gesture) => {
-      const clamped = Math.max(0, Math.min(1, gesture.dy / 140));
+      const clamped = Math.max(0, Math.min(1, gesture.dy / 145));
       if (clamped >= 0.08) {
         shootCueBall(clamped);
       } else {
@@ -503,27 +524,32 @@ export default function App() {
     },
   });
 
+  // Mira estendida (170px na bola alvo + reflexão nas tabelas)
   const getAimPreview = () => {
     const cue = ballsRef.current.find((b) => b.id === 0);
     if (!cue || !cue.active || isMoving) return null;
 
     const dx = Math.cos(aimAngle);
     const dy = Math.sin(aimAngle);
-    const step = 2.5;
+    const step = 2.0;
     let x = cue.x;
     let y = cue.y;
     let hitBall = null;
+    let hitRail = false;
 
-    for (let d = 0; d < TABLE_H * 1.2; d += step) {
+    const minX = PLAY_X + BALL_R;
+    const maxX = PLAY_X + PLAY_W - BALL_R;
+    const minY = PLAY_Y + BALL_R;
+    const maxY = PLAY_Y + PLAY_H - BALL_R;
+
+    for (let d = 0; d < TABLE_H * 1.4; d += step) {
       x += dx * step;
       y += dy * step;
 
-      if (
-        x <= PLAY_X + BALL_R ||
-        x >= PLAY_X + PLAY_W - BALL_R ||
-        y <= PLAY_Y + BALL_R ||
-        y >= PLAY_Y + PLAY_H - BALL_R
-      ) {
+      if (x <= minX || x >= maxX || y <= minY || y >= maxY) {
+        x = Math.max(minX, Math.min(maxX, x));
+        y = Math.max(minY, Math.min(maxY, y));
+        hitRail = true;
         break;
       }
 
@@ -539,33 +565,55 @@ export default function App() {
       if (hitBall) break;
     }
 
-    let targetLine = null;
+    let targetLines = [];
     if (hitBall) {
       const tAngle = Math.atan2(hitBall.y - y, hitBall.x - x);
-      targetLine = {
-        x1: hitBall.x,
-        y1: hitBall.y,
-        x2: hitBall.x + Math.cos(tAngle) * 55,
-        y2: hitBall.y + Math.sin(tAngle) * 55,
-      };
+      const tdx = Math.cos(tAngle);
+      const tdy = Math.sin(tAngle);
+      let tx = hitBall.x;
+      let ty = hitBall.y;
+      const maxTrace = 175;
+
+      for (let td = 0; td < maxTrace; td += 2) {
+        const nx = tx + tdx * 2;
+        const ny = ty + tdy * 2;
+        if (nx <= minX || nx >= maxX || ny <= minY || ny >= maxY) {
+          // Segue o rebote na tabela por mais 60px
+          const rdx = nx <= minX || nx >= maxX ? -tdx : tdx;
+          const rdy = ny <= minY || ny >= maxY ? -tdy : tdy;
+          targetLines.push({ x1: hitBall.x, y1: hitBall.y, x2: tx, y2: ty });
+          targetLines.push({
+            x1: tx,
+            y1: ty,
+            x2: Math.max(minX, Math.min(maxX, tx + rdx * 65)),
+            y2: Math.max(minY, Math.min(maxY, ty + rdy * 65)),
+          });
+          break;
+        }
+        tx = nx;
+        ty = ny;
+        if (td + 2 >= maxTrace) {
+          targetLines.push({ x1: hitBall.x, y1: hitBall.y, x2: tx, y2: ty });
+        }
+      }
+    } else if (hitRail) {
+      // Linha extra mostrando para onde a bola branca vai rebater na tabela
+      const rdx = x <= minX || x >= maxX ? -dx : dx;
+      const rdy = y <= minY || y >= maxY ? -dy : dy;
+      targetLines.push({
+        x1: x,
+        y1: y,
+        x2: Math.max(minX, Math.min(maxX, x + rdx * 110)),
+        y2: Math.max(minY, Math.min(maxY, y + rdy * 110)),
+      });
     }
 
-    return { startX: cue.x, startY: cue.y, endX: x, endY: y, hitBall, targetLine };
+    return { startX: cue.x, startY: cue.y, endX: x, endY: y, hitBall, targetLines };
   };
-            const toggleSpin = () => {
-    const presets = [
-      { x: 0, y: 0 },
-      { x: 0, y: 0.8 },
-      { x: 0, y: -0.8 },
-      { x: -0.8, y: 0 },
-      { x: 0.8, y: 0 },
-    ];
-    const currentIdx = presets.findIndex(
-      (p) => p.x === spin.x && p.y === spin.y
-    );
-    const next = presets[(currentIdx + 1) % presets.length];
-    spinRef.current = next;
-    setSpin(next);
+    const toggleSpin = () => {
+    const nextIdx = (spinIdx + 1) % SPIN_PRESETS.length;
+    setSpinIdx(nextIdx);
+    spinRef.current = { x: SPIN_PRESETS[nextIdx].x, y: SPIN_PRESETS[nextIdx].y };
   };
 
   if (gameMode === 'menu') {
@@ -611,6 +659,7 @@ export default function App() {
 
   const stageList = gameMode === 'trick' ? TRICK_STAGES : POCKET_STAGES;
   const currentStage = stageList[stageIndex];
+  const currentSpin = SPIN_PRESETS[spinIdx];
   const aimPreview = getAimPreview();
   const cueBall = ballsRef.current.find((b) => b.id === 0);
 
@@ -656,12 +705,11 @@ export default function App() {
       </View>
 
       <View style={styles.arenaRow}>
-        {/* Mesa de Bilhar 100% Nativa */}
+        {/* Mesa de Bilhar Ampliada */}
         <View
           style={[styles.tableWood, { width: TABLE_W, height: TABLE_H }]}
           {...tablePanResponder.panHandlers}
         >
-          {/* Feltro Verde */}
           <View
             pointerEvents="none"
             style={[
@@ -675,7 +723,6 @@ export default function App() {
             ]}
           />
 
-          {/* Linha de Cabeceira */}
           <View
             pointerEvents="none"
             style={{
@@ -688,7 +735,6 @@ export default function App() {
             }}
           />
 
-          {/* 6 Caçapas */}
           {POCKETS.map((p, idx) => (
             <View
               key={idx}
@@ -707,7 +753,6 @@ export default function App() {
             />
           ))}
 
-          {/* Estrela Bônus */}
           {starRef.current && starRef.current.active && (
             <View
               pointerEvents="none"
@@ -727,7 +772,7 @@ export default function App() {
             </View>
           )}
 
-          {/* Linha de Mira e Bola Fantasma */}
+          {/* Linha de Mira e Trajetória Estendida */}
           {aimPreview && (
             <View pointerEvents="none" style={StyleSheet.absoluteFill}>
               <NativeLine
@@ -738,7 +783,7 @@ export default function App() {
                 thickness={2}
                 color="#FFFFFF"
                 dashed={true}
-                opacity={0.85}
+                opacity={0.9}
               />
               <View
                 style={{
@@ -750,20 +795,22 @@ export default function App() {
                   borderRadius: BALL_R,
                   borderWidth: 1.5,
                   borderColor: '#FFFFFF',
-                  backgroundColor: 'rgba(255,255,255,0.15)',
+                  backgroundColor: 'rgba(255,255,255,0.18)',
                 }}
               />
-              {aimPreview.targetLine && (
+              {aimPreview.targetLines.map((ln, i) => (
                 <NativeLine
-                  x1={aimPreview.targetLine.x1}
-                  y1={aimPreview.targetLine.y1}
-                  x2={aimPreview.targetLine.x2}
-                  y2={aimPreview.targetLine.y2}
+                  key={i}
+                  x1={ln.x1}
+                  y1={ln.y1}
+                  x2={ln.x2}
+                  y2={ln.y2}
                   thickness={2.5}
-                  color="#FACC15"
+                  color={aimPreview.hitBall ? '#FACC15' : '#38BDF8'}
                   dashed={true}
+                  opacity={0.95}
                 />
-              )}
+              ))}
             </View>
           )}
 
@@ -810,7 +857,7 @@ export default function App() {
                       alignItems: 'center',
                     }}
                   >
-                    <Text style={{ fontSize: 8.5, fontWeight: '900', color: '#090A0F' }}>
+                    <Text style={{ fontSize: 9, fontWeight: '900', color: '#090A0F' }}>
                       {b.id}
                     </Text>
                   </View>
@@ -842,23 +889,24 @@ export default function App() {
           )}
         </View>
 
-        {/* Coluna Direita: Efeito (Spin) + Puxador de Força */}
+        {/* Coluna Direita: Seletor de Batida (Maior) + Barra de Força */}
         <View style={styles.controlsColumn}>
-          <TouchableOpacity style={styles.spinBox} onPress={toggleSpin}>
-            <Text style={styles.spinLabel}>SPIN</Text>
+          <TouchableOpacity style={styles.spinBox} onPress={toggleSpin} activeOpacity={0.7}>
+            <Text style={styles.spinLabel}>BATIDA</Text>
             <View style={styles.spinBall}>
               <View
                 style={[
                   styles.spinDot,
                   {
                     transform: [
-                      { translateX: spin.x * 10 },
-                      { translateY: -spin.y * 10 },
+                      { translateX: currentSpin.x * 16 },
+                      { translateY: -currentSpin.y * 16 },
                     ],
                   },
                 ]}
               />
             </View>
+            <Text style={styles.spinModeText}>{currentSpin.label}</Text>
           </TouchableOpacity>
 
           <View style={styles.powerTrack} {...powerPanResponder.panHandlers}>
@@ -872,7 +920,7 @@ export default function App() {
             <View
               style={[
                 styles.powerKnob,
-                { top: 10 + pullPower * 125 },
+                { top: 18 + pullPower * 135 },
               ]}
             >
               <Text style={styles.powerKnobText}>🎱</Text>
@@ -884,7 +932,7 @@ export default function App() {
       <View style={styles.fineTuneRow}>
         <TouchableOpacity
           style={styles.fineBtn}
-          onPress={() => setAimAngle((a) => a - 0.025)}
+          onPress={() => setAimAngle((a) => a - 0.02)}
           disabled={isMoving}
         >
           <Text style={styles.fineBtnText}>↺ ESQ</Text>
@@ -892,7 +940,7 @@ export default function App() {
         <Text style={styles.comboBadge}>COMBO {combo}x</Text>
         <TouchableOpacity
           style={styles.fineBtn}
-          onPress={() => setAimAngle((a) => a + 0.025)}
+          onPress={() => setAimAngle((a) => a + 0.02)}
           disabled={isMoving}
         >
           <Text style={styles.fineBtnText}>DIR ↻</Text>
@@ -978,8 +1026,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#13151C',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderBottomWidth: 1,
     borderBottomColor: '#1E222D',
   },
@@ -987,25 +1035,25 @@ const styles = StyleSheet.create({
   backBtnText: { color: '#FFFFFF', fontSize: 11, fontWeight: '800' },
   hudCenter: { alignItems: 'center', flex: 1 },
   hudStageName: { color: '#00D26A', fontSize: 12, fontWeight: '900', letterSpacing: 1 },
-  hudTarget: { color: '#CBD5E1', fontSize: 11, fontWeight: '700', marginTop: 2 },
+  hudTarget: { color: '#CBD5E1', fontSize: 11, fontWeight: '700', marginTop: 1 },
   hudGold: { color: '#FACC15', fontWeight: '900' },
   hudShotsBox: {
     backgroundColor: '#090A0F',
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 3,
     borderRadius: 10,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#FACC15',
   },
   hudShotsLabel: { color: '#FACC15', fontSize: 8, fontWeight: '900' },
-  hudShotsValue: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
+  hudShotsValue: { color: '#FFFFFF', fontSize: 15, fontWeight: '900' },
 
-  bannerSlot: { height: 28, justifyContent: 'center', alignItems: 'center', marginVertical: 2 },
-  bannerPill: { backgroundColor: '#FACC15', paddingHorizontal: 14, paddingVertical: 3, borderRadius: 12 },
-  bannerText: { color: '#090A0F', fontSize: 11, fontWeight: '900', letterSpacing: 0.8 },
+  bannerSlot: { height: 24, justifyContent: 'center', alignItems: 'center' },
+  bannerPill: { backgroundColor: '#FACC15', paddingHorizontal: 14, paddingVertical: 2, borderRadius: 12 },
+  bannerText: { color: '#090A0F', fontSize: 10, fontWeight: '900', letterSpacing: 0.8 },
 
-  arenaRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  arenaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   tableWood: {
     backgroundColor: '#5C2D16',
     borderRadius: 16,
@@ -1024,27 +1072,32 @@ const styles = StyleSheet.create({
   spinBox: {
     alignItems: 'center',
     backgroundColor: '#13151C',
-    padding: 8,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#1E222D',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#334155',
+    width: 68,
   },
-  spinLabel: { color: '#94A3B8', fontSize: 9, fontWeight: '900', marginBottom: 4 },
+  spinLabel: { color: '#94A3B8', fontSize: 9, fontWeight: '900', marginBottom: 6 },
   spinBall: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     backgroundColor: '#F8FAFC',
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#CBD5E1',
   },
-  spinDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#EF4444' },
+  spinDot: { width: 11, height: 11, borderRadius: 5.5, backgroundColor: '#EF4444' },
+  spinModeText: { color: '#38BDF8', fontSize: 9, fontWeight: '900', marginTop: 6 },
 
   powerTrack: {
-    width: 44,
-    height: 175,
+    width: 54,
+    height: 195,
     backgroundColor: '#13151C',
-    borderRadius: 22,
+    borderRadius: 27,
     borderWidth: 1.5,
     borderColor: '#334155',
     alignItems: 'center',
@@ -1060,27 +1113,27 @@ const styles = StyleSheet.create({
   },
   powerKnob: {
     position: 'absolute',
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#1E293B',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: '#FACC15',
   },
-  powerKnobText: { fontSize: 16 },
+  powerKnobText: { fontSize: 18 },
 
   fineTuneRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     width: TABLE_W,
-    marginTop: 10,
+    marginTop: 8,
   },
   fineBtn: {
     backgroundColor: '#13151C',
-    paddingHorizontal: 16,
+    paddingHorizontal: 18,
     paddingVertical: 8,
     borderRadius: 12,
     borderWidth: 1,
@@ -1122,14 +1175,3 @@ const styles = StyleSheet.create({
   resultBtnText: { color: '#FFFFFF', fontSize: 14, fontWeight: '900', letterSpacing: 1 },
 });
       
-
-    starRef.current = st.star
-      ? { x: PLAY_X + st.star.x * PLAY_W, y: PLAY_Y + st.star.y * PLAY_H, active: true }
-      : null;
-
-    isMovingRef.current = false;
-    setIsMoving(false);
-    setTick((t) => t + 1);
-    showBanner(st.name);
-  };
-    
