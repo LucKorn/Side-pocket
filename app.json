@@ -5,13 +5,16 @@
     "version": "1.0.0",
     "owner": "lukorn",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "splash": {
+      "image": "./assets/icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#090A0F"
     },
     "android": {
       "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#090A0F"
       },
       "package": "com.lukorn.sidepocket"
