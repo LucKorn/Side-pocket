@@ -12,7 +12,6 @@ import {
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-// Mesa ampliada ocupando melhor a altura e largura da tela
 const MAX_AVAIL_H = SCREEN_HEIGHT - 165;
 const MAX_AVAIL_W = SCREEN_WIDTH - 86;
 const TABLE_W = Math.min(MAX_AVAIL_W, MAX_AVAIL_H / 1.88);
@@ -182,6 +181,9 @@ export default function App() {
   const ballsRef = useRef([]);
   const starRef = useRef(null);
   const isMovingRef = useRef(false);
+  const stageResultRef = useRef(null);
+  const aimAngleRef = useRef(-Math.PI / 2);
+  const pullPowerRef = useRef(0);
   const pottedThisTurnRef = useRef([]);
   const cuePottedRef = useRef(false);
   const starHitRef = useRef(false);
@@ -191,6 +193,11 @@ export default function App() {
   const comboRef = useRef(1);
   const stageIdxRef = useRef(0);
   const modeRef = useRef('pocket');
+
+  const updateAimAngle = (newAngle) => {
+    aimAngleRef.current = newAngle;
+    setAimAngle(newAngle);
+  };
 
   const showBanner = (text) => {
     setBannerMsg(text);
@@ -206,6 +213,7 @@ export default function App() {
 
     modeRef.current = mode;
     stageIdxRef.current = safeIdx;
+    stageResultRef.current = null;
     setGameMode(mode);
     setStageIndex(safeIdx);
     setStageResult(null);
@@ -219,7 +227,8 @@ export default function App() {
     setShotsLeft(st.shots);
     comboRef.current = 1;
     setCombo(1);
-    setAimAngle(-Math.PI / 2);
+    updateAimAngle(-Math.PI / 2);
+    pullPowerRef.current = 0;
     setPullPower(0);
     spinRef.current = { x: 0, y: 0 };
     setSpinIdx(0);
@@ -252,7 +261,7 @@ export default function App() {
     setTick((t) => t + 1);
     showBanner(st.name);
   };
-          useEffect(() => {
+      useEffect(() => {
     const interval = setInterval(() => {
       if (!isMovingRef.current) return;
 
@@ -453,8 +462,10 @@ export default function App() {
 
     if (mode === 'trick') {
       if (remainingObjectBalls === 0 && !scratched) {
+        stageResultRef.current = 'win';
         setStageResult('win');
       } else {
+        stageResultRef.current = 'lose';
         setStageResult('lose');
       }
     } else {
@@ -463,68 +474,96 @@ export default function App() {
           scoreRef.current += shotsRef.current * 250;
           setScore(scoreRef.current);
         }
+        stageResultRef.current = 'win';
         setStageResult('win');
       } else if (shotsRef.current <= 0) {
+        stageResultRef.current = 'lose';
         setStageResult('lose');
       }
     }
   };
 
   const shootCueBall = (powerRatio) => {
-    if (isMovingRef.current || powerRatio < 0.06) return;
+    if (isMovingRef.current || powerRatio < 0.05) return;
     const cue = ballsRef.current.find((b) => b.id === 0);
     if (!cue || !cue.active) return;
 
-    const maxSpeed = 19.5;
+    const maxSpeed = 20.0;
     const speed = powerRatio * maxSpeed;
+    const angle = aimAngleRef.current;
 
-    cue.vx = Math.cos(aimAngle) * speed;
-    cue.vy = Math.sin(aimAngle) * speed;
+    cue.vx = Math.cos(angle) * speed;
+    cue.vy = Math.sin(angle) * speed;
 
     pottedThisTurnRef.current = [];
     cuePottedRef.current = false;
     starHitRef.current = false;
 
+    pullPowerRef.current = 0;
+    setPullPower(0);
     isMovingRef.current = true;
     setIsMoving(true);
-    setPullPower(0);
   };
 
-  const tablePanResponder = PanResponder.create({
-    onStartShouldSetPanResponder: () => !isMoving && !stageResult,
-    onMoveShouldSetPanResponder: () => !isMoving && !stageResult,
-    onPanResponderGrant: (evt) => {
-      const cue = ballsRef.current.find((b) => b.id === 0);
-      if (!cue) return;
-      const { locationX, locationY } = evt.nativeEvent;
-      setAimAngle(Math.atan2(locationY - cue.y, locationX - cue.x));
-    },
-    onPanResponderMove: (evt) => {
-      const cue = ballsRef.current.find((b) => b.id === 0);
-      if (!cue) return;
-      const { locationX, locationY } = evt.nativeEvent;
-      setAimAngle(Math.atan2(locationY - cue.y, locationX - cue.x));
-    },
-  });
+  const tablePanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => !isMovingRef.current && !stageResultRef.current,
+      onMoveShouldSetPanResponder: () => !isMovingRef.current && !stageResultRef.current,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: (evt) => {
+        const cue = ballsRef.current.find((b) => b.id === 0);
+        if (!cue) return;
+        const { locationX, locationY } = evt.nativeEvent;
+        updateAimAngle(Math.atan2(locationY - cue.y, locationX - cue.x));
+      },
+      onPanResponderMove: (evt) => {
+        const cue = ballsRef.current.find((b) => b.id === 0);
+        if (!cue) return;
+        const { locationX, locationY } = evt.nativeEvent;
+        updateAimAngle(Math.atan2(locationY - cue.y, locationX - cue.x));
+      },
+    })
+  ).current;
 
-  const powerPanResponder = PanResponder.create({
-    onStartShouldSetPanResponder: () => !isMoving && !stageResult,
-    onMoveShouldSetPanResponder: () => !isMoving && !stageResult,
-    onPanResponderMove: (_, gesture) => {
-      const clamped = Math.max(0, Math.min(1, gesture.dy / 145));
-      setPullPower(clamped);
-    },
-    onPanResponderRelease: (_, gesture) => {
-      const clamped = Math.max(0, Math.min(1, gesture.dy / 145));
-      if (clamped >= 0.08) {
-        shootCueBall(clamped);
-      } else {
-        setPullPower(0);
-      }
-    },
-  });
+  // Barra de força persistente com useRef (permite puxar até o fundo e dispara ao soltar)
+  const powerPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => !isMovingRef.current && !stageResultRef.current,
+      onMoveShouldSetPanResponder: () => !isMovingRef.current && !stageResultRef.current,
+      onStartShouldSetPanResponderCapture: () => !isMovingRef.current && !stageResultRef.current,
+      onMoveShouldSetPanResponderCapture: () => !isMovingRef.current && !stageResultRef.current,
+      onPanResponderTerminationRequest: () => false,
+      onShouldBlockNativeResponder: () => true,
+      onPanResponderGrant: () => {
+        pullPowerRef.current = 0.05;
+        setPullPower(0.05);
+      },
+      onPanResponderMove: (_, gesture) => {
+        const clamped = Math.max(0, Math.min(1, gesture.dy / 135));
+        pullPowerRef.current = clamped;
+        setPullPower(clamped);
+      },
+      onPanResponderRelease: () => {
+        const finalPower = pullPowerRef.current;
+        if (finalPower >= 0.06) {
+          shootCueBall(finalPower);
+        } else {
+          pullPowerRef.current = 0;
+          setPullPower(0);
+        }
+      },
+      onPanResponderTerminate: () => {
+        const finalPower = pullPowerRef.current;
+        if (finalPower >= 0.06) {
+          shootCueBall(finalPower);
+        } else {
+          pullPowerRef.current = 0;
+          setPullPower(0);
+        }
+      },
+    })
+  ).current;
 
-  // Mira estendida (170px na bola alvo + reflexão nas tabelas)
   const getAimPreview = () => {
     const cue = ballsRef.current.find((b) => b.id === 0);
     if (!cue || !cue.active || isMoving) return null;
@@ -578,7 +617,6 @@ export default function App() {
         const nx = tx + tdx * 2;
         const ny = ty + tdy * 2;
         if (nx <= minX || nx >= maxX || ny <= minY || ny >= maxY) {
-          // Segue o rebote na tabela por mais 60px
           const rdx = nx <= minX || nx >= maxX ? -tdx : tdx;
           const rdy = ny <= minY || ny >= maxY ? -tdy : tdy;
           targetLines.push({ x1: hitBall.x, y1: hitBall.y, x2: tx, y2: ty });
@@ -597,7 +635,6 @@ export default function App() {
         }
       }
     } else if (hitRail) {
-      // Linha extra mostrando para onde a bola branca vai rebater na tabela
       const rdx = x <= minX || x >= maxX ? -dx : dx;
       const rdy = y <= minY || y >= maxY ? -dy : dy;
       targetLines.push({
@@ -610,7 +647,7 @@ export default function App() {
 
     return { startX: cue.x, startY: cue.y, endX: x, endY: y, hitBall, targetLines };
   };
-    const toggleSpin = () => {
+  const toggleSpin = () => {
     const nextIdx = (spinIdx + 1) % SPIN_PRESETS.length;
     setSpinIdx(nextIdx);
     spinRef.current = { x: SPIN_PRESETS[nextIdx].x, y: SPIN_PRESETS[nextIdx].y };
@@ -772,7 +809,6 @@ export default function App() {
             </View>
           )}
 
-          {/* Linha de Mira e Trajetória Estendida */}
           {aimPreview && (
             <View pointerEvents="none" style={StyleSheet.absoluteFill}>
               <NativeLine
@@ -814,7 +850,6 @@ export default function App() {
             </View>
           )}
 
-          {/* Bolas na Mesa */}
           {ballsRef.current.map((b) => {
             if (!b.active) return null;
             const isCue = b.id === 0;
@@ -866,7 +901,6 @@ export default function App() {
             );
           })}
 
-          {/* Taco de Bilhar */}
           {cueBall && cueBall.active && !isMoving && (
             <View pointerEvents="none" style={StyleSheet.absoluteFill}>
               <NativeLine
@@ -889,7 +923,7 @@ export default function App() {
           )}
         </View>
 
-        {/* Coluna Direita: Seletor de Batida (Maior) + Barra de Força */}
+        {/* Coluna Direita: Seletor de Batida + Barra de Força (filhos com pointerEvents="none" para nunca perder o gesto) */}
         <View style={styles.controlsColumn}>
           <TouchableOpacity style={styles.spinBox} onPress={toggleSpin} activeOpacity={0.7}>
             <Text style={styles.spinLabel}>BATIDA</Text>
@@ -910,14 +944,16 @@ export default function App() {
           </TouchableOpacity>
 
           <View style={styles.powerTrack} {...powerPanResponder.panHandlers}>
-            <Text style={styles.powerHint}>PUXE</Text>
+            <Text pointerEvents="none" style={styles.powerHint}>PUXE</Text>
             <View
+              pointerEvents="none"
               style={[
                 styles.powerFill,
                 { height: `${Math.round(pullPower * 100)}%` },
               ]}
             />
             <View
+              pointerEvents="none"
               style={[
                 styles.powerKnob,
                 { top: 18 + pullPower * 135 },
@@ -932,7 +968,7 @@ export default function App() {
       <View style={styles.fineTuneRow}>
         <TouchableOpacity
           style={styles.fineBtn}
-          onPress={() => setAimAngle((a) => a - 0.02)}
+          onPress={() => updateAimAngle(aimAngleRef.current - 0.02)}
           disabled={isMoving}
         >
           <Text style={styles.fineBtnText}>↺ ESQ</Text>
@@ -940,7 +976,7 @@ export default function App() {
         <Text style={styles.comboBadge}>COMBO {combo}x</Text>
         <TouchableOpacity
           style={styles.fineBtn}
-          onPress={() => setAimAngle((a) => a + 0.02)}
+          onPress={() => updateAimAngle(aimAngleRef.current + 0.02)}
           disabled={isMoving}
         >
           <Text style={styles.fineBtnText}>DIR ↻</Text>
@@ -1094,10 +1130,10 @@ const styles = StyleSheet.create({
   spinModeText: { color: '#38BDF8', fontSize: 9, fontWeight: '900', marginTop: 6 },
 
   powerTrack: {
-    width: 54,
+    width: 56,
     height: 195,
     backgroundColor: '#13151C',
-    borderRadius: 27,
+    borderRadius: 28,
     borderWidth: 1.5,
     borderColor: '#334155',
     alignItems: 'center',
