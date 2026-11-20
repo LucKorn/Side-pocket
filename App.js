@@ -9,21 +9,9 @@ import {
   Dimensions,
   StatusBar,
 } from 'react-native';
-import Svg, {
-  Rect,
-  Circle,
-  Line,
-  G,
-  Text as SvgText,
-  Defs,
-  RadialGradient,
-  Stop,
-  Polygon,
-} from 'react-native-svg';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// Dimensões proporcionais da mesa vertical (estilo Arcade Side Pocket)
 const TABLE_W = Math.min(SCREEN_WIDTH - 76, 310);
 const TABLE_H = TABLE_W * 1.88;
 const RAIL = 22;
@@ -136,8 +124,38 @@ const TRICK_STAGES = [
   },
 ];
 
+// Componente auxiliar para desenhar qualquer linha usando View rotacionada
+function NativeLine({ x1, y1, x2, y2, thickness = 2, color = '#FFFFFF', dashed = false, opacity = 1 }) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const length = Math.hypot(dx, dy);
+  if (length < 1) return null;
+  const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+  const midX = (x1 + x2) / 2;
+  const midY = (y1 + y2) / 2;
+
+  return (
+    <View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        left: midX - length / 2,
+        top: midY - thickness / 2,
+        width: length,
+        height: thickness,
+        backgroundColor: dashed ? 'transparent' : color,
+        borderStyle: dashed ? 'dashed' : 'solid',
+        borderWidth: dashed ? thickness / 2 : 0,
+        borderColor: color,
+        opacity,
+        transform: [{ rotate: `${angle}deg` }],
+      }}
+    />
+  );
+}
+
 export default function App() {
-  const [gameMode, setGameMode] = useState('menu'); // 'menu' | 'pocket' | 'trick'
+  const [gameMode, setGameMode] = useState('menu');
   const [stageIndex, setStageIndex] = useState(0);
   const [score, setScore] = useState(0);
   const [shotsLeft, setShotsLeft] = useState(10);
@@ -147,7 +165,7 @@ export default function App() {
   const [spin, setSpin] = useState({ x: 0, y: 0 });
   const [isMoving, setIsMoving] = useState(false);
   const [bannerMsg, setBannerMsg] = useState('');
-  const [stageResult, setStageResult] = useState(null); // null | 'win' | 'lose'
+  const [stageResult, setStageResult] = useState(null);
   const [, setTick] = useState(0);
 
   const ballsRef = useRef([]);
@@ -195,7 +213,7 @@ export default function App() {
     spinRef.current = { x: 0, y: 0 };
     setSpin({ x: 0, y: 0 });
 
-    const createdBalls = [
+    ballsRef.current = [
       {
         id: 0,
         x: PLAY_X + st.cue.x * PLAY_W,
@@ -213,19 +231,7 @@ export default function App() {
         active: true,
       })),
     ];
-
-    ballsRef.current = createdBalls;
-    starRef.current = st.star
-      ? { x: PLAY_X + st.star.x * PLAY_W, y: PLAY_Y + st.star.y * PLAY_H, active: true }
-      : null;
-
-    isMovingRef.current = false;
-    setIsMoving(false);
-    setTick((t) => t + 1);
-    showBanner(st.name);
-  };
-             // Loop principal da física das bolas (60 FPS com 6 sub-passos por frame)
-  useEffect(() => {
+      useEffect(() => {
     const interval = setInterval(() => {
       if (!isMovingRef.current) return;
 
@@ -235,7 +241,6 @@ export default function App() {
       let anyMoving = false;
 
       for (let step = 0; step < subSteps; step++) {
-        // 1. Movimentação, atrito e colisão com as tabelas
         for (let i = 0; i < balls.length; i++) {
           const b = balls[i];
           if (!b.active) continue;
@@ -245,7 +250,6 @@ export default function App() {
           b.vx *= friction;
           b.vy *= friction;
 
-          // Verifica se caiu em alguma caçapa
           let pocketed = false;
           for (let p = 0; p < POCKETS.length; p++) {
             const dx = b.x - POCKETS[p].x;
@@ -265,7 +269,6 @@ export default function App() {
           }
           if (pocketed) continue;
 
-          // Verifica estrela bônus
           if (b.id === 0 && starRef.current && starRef.current.active) {
             const sdx = b.x - starRef.current.x;
             const sdy = b.y - starRef.current.y;
@@ -275,7 +278,6 @@ export default function App() {
             }
           }
 
-          // Rebatida nas tabelas com efeito (spin)
           const minX = PLAY_X + BALL_R;
           const maxX = PLAY_X + PLAY_W - BALL_R;
           const minY = PLAY_Y + BALL_R;
@@ -302,7 +304,6 @@ export default function App() {
           }
         }
 
-        // 2. Colisão elástica entre bolas
         for (let i = 0; i < balls.length; i++) {
           for (let j = i + 1; j < balls.length; j++) {
             const b1 = balls[i];
@@ -319,14 +320,12 @@ export default function App() {
               const nx = dx / dist;
               const ny = dy / dist;
 
-              // Separa as bolas sobrepostas
               const overlap = (minDist - dist) * 0.5;
               b1.x -= nx * overlap;
               b1.y -= ny * overlap;
               b2.x += nx * overlap;
               b2.y += ny * overlap;
 
-              // Troca de velocidade ao longo do eixo normal
               const dvx = b1.vx - b2.vx;
               const dvy = b1.vy - b2.vy;
               const p = dvx * nx + dvy * ny;
@@ -338,7 +337,6 @@ export default function App() {
                 b2.vx += p * nx * restitution;
                 b2.vy += p * ny * restitution;
 
-                // Efeito follow/draw na bola branca após primeiro impacto
                 if (b1.id === 0 && spinRef.current.y !== 0) {
                   b1.vx += nx * spinRef.current.y * 2.2;
                   b1.vy += ny * spinRef.current.y * 2.2;
@@ -349,7 +347,6 @@ export default function App() {
         }
       }
 
-      // Verifica se ainda existe movimento
       for (let i = 0; i < balls.length; i++) {
         const b = balls[i];
         if (!b.active) continue;
@@ -382,7 +379,6 @@ export default function App() {
     const scratched = cuePottedRef.current;
     const hitStar = starHitRef.current;
 
-    // Reposiciona a bola branca caso tenha caído (Scratch)
     if (scratched) {
       const cue = ballsRef.current.find((b) => b.id === 0);
       if (cue) {
@@ -422,15 +418,13 @@ export default function App() {
       }
     }
 
-    // Consome tacada (no Pocket Game, encaçapar sem falta devolve 1 tacada bônus)
     if (mode === 'pocket' && potted.length > 0 && !scratched) {
-      // Mantém as tacadas restantes como prêmio
+      // Mantém tacadas
     } else {
       shotsRef.current = Math.max(0, shotsRef.current - 1);
       setShotsLeft(shotsRef.current);
     }
 
-    // Reseta o efeito após a tacada
     spinRef.current = { x: 0, y: 0 };
     setSpin({ x: 0, y: 0 });
 
@@ -475,7 +469,6 @@ export default function App() {
     setPullPower(0);
   };
 
-  // Controle de mira ao tocar e arrastar na mesa
   const tablePanResponder = PanResponder.create({
     onStartShouldSetPanResponder: () => !isMoving && !stageResult,
     onMoveShouldSetPanResponder: () => !isMoving && !stageResult,
@@ -493,7 +486,6 @@ export default function App() {
     },
   });
 
-  // Controle da barra de força lateral
   const powerPanResponder = PanResponder.create({
     onStartShouldSetPanResponder: () => !isMoving && !stageResult,
     onMoveShouldSetPanResponder: () => !isMoving && !stageResult,
@@ -511,7 +503,6 @@ export default function App() {
     },
   });
 
-  // Cálculo da linha de mira + bola fantasma de reflexão (estilo Side Pocket)
   const getAimPreview = () => {
     const cue = ballsRef.current.find((b) => b.id === 0);
     if (!cue || !cue.active || isMoving) return null;
@@ -547,13 +538,27 @@ export default function App() {
       }
       if (hitBall) break;
     }
-  const toggleSpin = () => {
+
+    let targetLine = null;
+    if (hitBall) {
+      const tAngle = Math.atan2(hitBall.y - y, hitBall.x - x);
+      targetLine = {
+        x1: hitBall.x,
+        y1: hitBall.y,
+        x2: hitBall.x + Math.cos(tAngle) * 55,
+        y2: hitBall.y + Math.sin(tAngle) * 55,
+      };
+    }
+
+    return { startX: cue.x, startY: cue.y, endX: x, endY: y, hitBall, targetLine };
+  };
+            const toggleSpin = () => {
     const presets = [
       { x: 0, y: 0 },
-      { x: 0, y: 0.8 },   // Top spin (segue adiante)
-      { x: 0, y: -0.8 },  // Back spin (puxadinha)
-      { x: -0.8, y: 0 },  // Efeito esquerda
-      { x: 0.8, y: 0 },   // Efeito direita
+      { x: 0, y: 0.8 },
+      { x: 0, y: -0.8 },
+      { x: -0.8, y: 0 },
+      { x: 0.8, y: 0 },
     ];
     const currentIdx = presets.findIndex(
       (p) => p.x === spin.x && p.y === spin.y
@@ -609,19 +614,19 @@ export default function App() {
   const aimPreview = getAimPreview();
   const cueBall = ballsRef.current.find((b) => b.id === 0);
 
-  // Posição do taco atrás da bola branca
   const cueOffset = BALL_R + 8 + pullPower * 42;
   const cueLen = 115;
   const cueX1 = cueBall ? cueBall.x - Math.cos(aimAngle) * cueOffset : 0;
   const cueY1 = cueBall ? cueBall.y - Math.sin(aimAngle) * cueOffset : 0;
   const cueX2 = cueBall ? cueBall.x - Math.cos(aimAngle) * (cueOffset + cueLen) : 0;
   const cueY2 = cueBall ? cueBall.y - Math.sin(aimAngle) * (cueOffset + cueLen) : 0;
+  const tipX2 = cueBall ? cueBall.x - Math.cos(aimAngle) * (cueOffset + 8) : 0;
+  const tipY2 = cueBall ? cueBall.y - Math.sin(aimAngle) * (cueOffset + 8) : 0;
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#090A0F" />
 
-      {/* Placar Superior Estilo Arcade */}
       <View style={styles.hudHeader}>
         <TouchableOpacity onPress={() => setGameMode('menu')} style={styles.backBtn}>
           <Text style={styles.backBtnText}>◀ MENU</Text>
@@ -642,7 +647,6 @@ export default function App() {
         </View>
       </View>
 
-      {/* Banner de Feedback (Nice Shot / Star Bonus / Scratch) */}
       <View style={styles.bannerSlot}>
         {bannerMsg !== '' && (
           <View style={styles.bannerPill}>
@@ -651,196 +655,191 @@ export default function App() {
         )}
       </View>
 
-      {/* Área Principal: Mesa + Barra de Força Lateral */}
       <View style={styles.arenaRow}>
-        <View style={styles.tableWrapper} {...tablePanResponder.panHandlers}>
-          <Svg width={TABLE_W} height={TABLE_H}>
-            <Defs>
-              <RadialGradient id="feltGrad" cx="50%" cy="50%" r="70%">
-                <Stop offset="0%" stopColor="#0E7A45" stopOpacity="1" />
-                <Stop offset="100%" stopColor="#084C2B" stopOpacity="1" />
-              </RadialGradient>
-            </Defs>
+        {/* Mesa de Bilhar 100% Nativa */}
+        <View
+          style={[styles.tableWood, { width: TABLE_W, height: TABLE_H }]}
+          {...tablePanResponder.panHandlers}
+        >
+          {/* Feltro Verde */}
+          <View
+            pointerEvents="none"
+            style={[
+              styles.tableFelt,
+              {
+                left: PLAY_X,
+                top: PLAY_Y,
+                width: PLAY_W,
+                height: PLAY_H,
+              },
+            ]}
+          />
 
-            {/* Moldura de Madeira Mogno */}
-            <Rect
-              x={0}
-              y={0}
-              width={TABLE_W}
-              height={TABLE_H}
-              rx={16}
-              fill="#5C2D16"
-              stroke="#8C4A27"
-              strokeWidth={3}
+          {/* Linha de Cabeceira */}
+          <View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              left: PLAY_X,
+              top: PLAY_Y + PLAY_H * 0.75,
+              width: PLAY_W,
+              height: 1,
+              backgroundColor: 'rgba(255,255,255,0.18)',
+            }}
+          />
+
+          {/* 6 Caçapas */}
+          {POCKETS.map((p, idx) => (
+            <View
+              key={idx}
+              pointerEvents="none"
+              style={{
+                position: 'absolute',
+                left: p.x - POCKET_R,
+                top: p.y - POCKET_R,
+                width: POCKET_R * 2,
+                height: POCKET_R * 2,
+                borderRadius: POCKET_R,
+                backgroundColor: '#05070A',
+                borderWidth: 2,
+                borderColor: '#2A1409',
+              }}
             />
+          ))}
 
-            {/* Feltro Verde */}
-            <Rect
-              x={PLAY_X}
-              y={PLAY_Y}
-              width={PLAY_W}
-              height={PLAY_H}
-              rx={6}
-              fill="url(#feltGrad)"
-            />
+          {/* Estrela Bônus */}
+          {starRef.current && starRef.current.active && (
+            <View
+              pointerEvents="none"
+              style={{
+                position: 'absolute',
+                left: starRef.current.x - 13,
+                top: starRef.current.y - 13,
+                width: 26,
+                height: 26,
+                borderRadius: 13,
+                backgroundColor: 'rgba(250, 204, 21, 0.22)',
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+            >
+              <Text style={{ color: '#FACC15', fontSize: 16, fontWeight: '900' }}>★</Text>
+            </View>
+          )}
 
-            {/* Linha de cabeceira */}
-            <Line
-              x1={PLAY_X}
-              y1={PLAY_Y + PLAY_H * 0.75}
-              x2={PLAY_X + PLAY_W}
-              y2={PLAY_Y + PLAY_H * 0.75}
-              stroke="rgba(255,255,255,0.18)"
-              strokeWidth={1.5}
-              strokeDasharray="4,4"
-            />
-
-            {/* 6 Caçapas */}
-            {POCKETS.map((p, idx) => (
-              <G key={idx}>
-                <Circle cx={p.x} cy={p.y} r={POCKET_R + 2} fill="#2A1409" />
-                <Circle cx={p.x} cy={p.y} r={POCKET_R} fill="#05070A" />
-              </G>
-            ))}
-
-            {/* Estrela Bônus */}
-            {starRef.current && starRef.current.active && (
-              <G>
-                <Circle
-                  cx={starRef.current.x}
-                  cy={starRef.current.y}
-                  r={13}
-                  fill="rgba(250, 204, 21, 0.22)"
+          {/* Linha de Mira e Bola Fantasma */}
+          {aimPreview && (
+            <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+              <NativeLine
+                x1={aimPreview.startX}
+                y1={aimPreview.startY}
+                x2={aimPreview.endX}
+                y2={aimPreview.endY}
+                thickness={2}
+                color="#FFFFFF"
+                dashed={true}
+                opacity={0.85}
+              />
+              <View
+                style={{
+                  position: 'absolute',
+                  left: aimPreview.endX - BALL_R,
+                  top: aimPreview.endY - BALL_R,
+                  width: BALL_R * 2,
+                  height: BALL_R * 2,
+                  borderRadius: BALL_R,
+                  borderWidth: 1.5,
+                  borderColor: '#FFFFFF',
+                  backgroundColor: 'rgba(255,255,255,0.15)',
+                }}
+              />
+              {aimPreview.targetLine && (
+                <NativeLine
+                  x1={aimPreview.targetLine.x1}
+                  y1={aimPreview.targetLine.y1}
+                  x2={aimPreview.targetLine.x2}
+                  y2={aimPreview.targetLine.y2}
+                  thickness={2.5}
+                  color="#FACC15"
+                  dashed={true}
                 />
-                <SvgText
-                  x={starRef.current.x}
-                  y={starRef.current.y + 6}
-                  fontSize="18"
-                  fill="#FACC15"
-                  textAnchor="middle"
-                >
-                  ★
-                </SvgText>
-              </G>
-            )}
+              )}
+            </View>
+          )}
 
-            {/* Linha de Mira e Bola Fantasma */}
-            {aimPreview && (
-              <G>
-                <Line
-                  x1={aimPreview.startX}
-                  y1={aimPreview.startY}
-                  x2={aimPreview.endX}
-                  y2={aimPreview.endY}
-                  stroke="#FFFFFF"
-                  strokeWidth={2}
-                  strokeDasharray="5,5"
-                  opacity={0.85}
-                />
-                <Circle
-                  cx={aimPreview.endX}
-                  cy={aimPreview.endY}
-                  r={BALL_R}
-                  stroke="#FFFFFF"
-                  strokeWidth={1.5}
-                  fill="rgba(255,255,255,0.15)"
-                />
-                {aimPreview.targetLine && (
-                  <Line
-                    x1={aimPreview.targetLine.x1}
-                    y1={aimPreview.targetLine.y1}
-                    x2={aimPreview.targetLine.x2}
-                    y2={aimPreview.targetLine.y2}
-                    stroke="#FACC15"
-                    strokeWidth={2.5}
-                    strokeDasharray="4,4"
+          {/* Bolas na Mesa */}
+          {ballsRef.current.map((b) => {
+            if (!b.active) return null;
+            const isCue = b.id === 0;
+            return (
+              <View
+                key={b.id}
+                pointerEvents="none"
+                style={{
+                  position: 'absolute',
+                  left: b.x - BALL_R,
+                  top: b.y - BALL_R,
+                  width: BALL_R * 2,
+                  height: BALL_R * 2,
+                  borderRadius: BALL_R,
+                  backgroundColor: BALL_COLORS[b.id] || '#EF4444',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  elevation: 4,
+                }}
+              >
+                {b.id === 9 && (
+                  <View
+                    style={{
+                      position: 'absolute',
+                      width: BALL_R * 1.85,
+                      height: BALL_R * 0.95,
+                      backgroundColor: '#FFFFFF',
+                      borderRadius: 3,
+                    }}
                   />
                 )}
-              </G>
-            )}
+                {!isCue && (
+                  <View
+                    style={{
+                      width: BALL_R * 1.15,
+                      height: BALL_R * 1.15,
+                      borderRadius: BALL_R * 0.6,
+                      backgroundColor: '#FFFFFF',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Text style={{ fontSize: 8.5, fontWeight: '900', color: '#090A0F' }}>
+                      {b.id}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            );
+          })}
 
-            {/* Bolas na Mesa */}
-            {ballsRef.current.map((b) => {
-              if (!b.active) return null;
-              const isCue = b.id === 0;
-              return (
-                <G key={b.id}>
-                  {/* Sombra */}
-                  <Circle
-                    cx={b.x + 2}
-                    cy={b.y + 2.5}
-                    r={BALL_R}
-                    fill="rgba(0,0,0,0.4)"
-                  />
-                  {/* Corpo da Bola */}
-                  <Circle
-                    cx={b.x}
-                    cy={b.y}
-                    r={BALL_R}
-                    fill={BALL_COLORS[b.id] || '#EF4444'}
-                  />
-                  {/* Faixa branca para a bola 9 */}
-                  {b.id === 9 && (
-                    <Rect
-                      x={b.x - BALL_R * 0.85}
-                      y={b.y - BALL_R * 0.45}
-                      width={BALL_R * 1.7}
-                      height={BALL_R * 0.9}
-                      rx={3}
-                      fill="#FFFFFF"
-                    />
-                  )}
-                  {/* Número da Bola */}
-                  {!isCue && (
-                    <G>
-                      <Circle cx={b.x} cy={b.y} r={BALL_R * 0.52} fill="#FFFFFF" />
-                      <SvgText
-                        x={b.x}
-                        y={b.y + 3.2}
-                        fontSize="8.5"
-                        fontWeight="bold"
-                        fill="#090A0F"
-                        textAnchor="middle"
-                      >
-                        {b.id}
-                      </SvgText>
-                    </G>
-                  )}
-                  {/* Brilho especular */}
-                  <Circle
-                    cx={b.x - BALL_R * 0.32}
-                    cy={b.y - BALL_R * 0.32}
-                    r={BALL_R * 0.24}
-                    fill="rgba(255,255,255,0.55)"
-                  />
-                </G>
-              );
-            })}
-
-            {/* Taco de Bilhar */}
-            {cueBall && cueBall.active && !isMoving && (
-              <G>
-                <Line
-                  x1={cueX1}
-                  y1={cueY1}
-                  x2={cueX2}
-                  y2={cueY2}
-                  stroke="#D97706"
-                  strokeWidth={5.5}
-                  strokeLinecap="round"
-                />
-                <Line
-                  x1={cueX1}
-                  y1={cueY1}
-                  x2={cueBall.x - Math.cos(aimAngle) * (cueOffset + 8)}
-                  y2={cueBall.y - Math.sin(aimAngle) * (cueOffset + 8)}
-                  stroke="#38BDF8"
-                  strokeWidth={5.5}
-                  strokeLinecap="round"
-                />
-              </G>
-            )}
-          </Svg>
+          {/* Taco de Bilhar */}
+          {cueBall && cueBall.active && !isMoving && (
+            <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+              <NativeLine
+                x1={cueX1}
+                y1={cueY1}
+                x2={cueX2}
+                y2={cueY2}
+                thickness={5.5}
+                color="#D97706"
+              />
+              <NativeLine
+                x1={cueX1}
+                y1={cueY1}
+                x2={tipX2}
+                y2={tipY2}
+                thickness={5.5}
+                color="#38BDF8"
+              />
+            </View>
+          )}
         </View>
 
         {/* Coluna Direita: Efeito (Spin) + Puxador de Força */}
@@ -882,7 +881,6 @@ export default function App() {
         </View>
       </View>
 
-      {/* Rodapé com Ajuste Fino de Mira */}
       <View style={styles.fineTuneRow}>
         <TouchableOpacity
           style={styles.fineBtn}
@@ -901,7 +899,6 @@ export default function App() {
         </TouchableOpacity>
       </View>
 
-      {/* Tela de Resultado da Fase */}
       {stageResult && (
         <View style={styles.resultOverlay}>
           <View style={styles.resultCard}>
@@ -1009,7 +1006,19 @@ const styles = StyleSheet.create({
   bannerText: { color: '#090A0F', fontSize: 11, fontWeight: '900', letterSpacing: 0.8 },
 
   arenaRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  tableWrapper: { borderRadius: 16, overflow: 'hidden' },
+  tableWood: {
+    backgroundColor: '#5C2D16',
+    borderRadius: 16,
+    borderWidth: 3,
+    borderColor: '#8C4A27',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  tableFelt: {
+    position: 'absolute',
+    backgroundColor: '#0B6337',
+    borderRadius: 6,
+  },
 
   controlsColumn: { alignItems: 'center', gap: 14 },
   spinBox: {
@@ -1113,17 +1122,14 @@ const styles = StyleSheet.create({
   resultBtnText: { color: '#FFFFFF', fontSize: 14, fontWeight: '900', letterSpacing: 1 },
 });
       
-    let targetLine = null;
-    if (hitBall) {
-      const tAngle = Math.atan2(hitBall.y - y, hitBall.x - x);
-      targetLine = {
-        x1: hitBall.x,
-        y1: hitBall.y,
-        x2: hitBall.x + Math.cos(tAngle) * 55,
-        y2: hitBall.y + Math.sin(tAngle) * 55,
-      };
-    }
 
-    return { startX: cue.x, startY: cue.y, endX: x, endY: y, hitBall, targetLine };
+    starRef.current = st.star
+      ? { x: PLAY_X + st.star.x * PLAY_W, y: PLAY_Y + st.star.y * PLAY_H, active: true }
+      : null;
+
+    isMovingRef.current = false;
+    setIsMoving(false);
+    setTick((t) => t + 1);
+    showBanner(st.name);
   };
-          
+    
