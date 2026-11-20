@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "Side Pocket",
+    "slug": "sidepocket",
+    "version": "1.0.0",
+    "owner": "lukorn",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#090A0F"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#090A0F"
+      },
+      "package": "com.lukorn.sidepocket"
+    }
+  }
+}
